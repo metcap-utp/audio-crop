@@ -130,7 +130,7 @@ def main():
     folder_path = "audio"
     cropped_folder_path = "cropped"
     graph_folder_path = "graph"
-    enable_graphs = True  # Establecer esto en False para deshabilitar gráficos
+    enable_graphs = True  # False para deshabilitar gráficos
     os.makedirs(cropped_folder_path, exist_ok=True)
     os.makedirs(graph_folder_path, exist_ok=True)
 
@@ -146,7 +146,6 @@ def main():
             plt.xlabel("Tiempo (s)")
             plt.ylabel("Amplitud")
 
-        # Usar crop_welding_audio en lugar de crop_audio
         cropped_audio = crop_welding_audio(
             os.path.join(folder_path, file_name)
         )
