@@ -3,7 +3,6 @@ import librosa
 import numpy as np
 import matplotlib.pyplot as plt
 from pydub import AudioSegment
-from pydub.silence import detect_nonsilent
 
 
 def load_audios_from_folder(folder_path):
@@ -65,17 +64,15 @@ def detect_welding_segments(
 
 
 def crop_welding_audio(
-    file_path, freq_min=500, freq_max=5000, threshold=0.15, buffer_ms=0
+    file_path, freq_min=500, freq_max=5000, threshold=0.15, crop_start_end_s=0
 ):
     """
-    Recortar solo los segmentos de soldadura del audio, pero ELIMINAR una parte (buffer)
-    al inicio y al final de cada segmento detectado. Cualquier porción dentro de 'buffer_ms'
-    de los límites del segmento se descarta.
+    Recortar solo los segmentos de soldadura del audio y recortar una parte (crop_start_end_s)
+    al inicio y al final del audio completo.
     """
     audio_data, sr = librosa.load(file_path, sr=None)
-    total_length_ms = (len(audio_data) / sr) * 1000
 
-    # Paso 1: Detectar segmentos (sin buffer aún) y unirlos
+    # Paso 1: Detectar segmentos y unirlos
     segmentos = detect_welding_segments(
         audio_data, sr, freq_min, freq_max, threshold
     )
@@ -91,25 +88,12 @@ def crop_welding_audio(
                 current_start, current_end = start, end
         rangos_unidos.append((current_start, current_end))
 
-    # Paso 2: ELIMINAR buffer de cada segmento en lugar de agregarlo
-    # (acortar los segmentos de soldadura en buffer_ms en cada lado)
-    rangos_acortados = []
-    for start, end in rangos_unidos:
-        adj_start = start + buffer_ms
-        adj_end = end - buffer_ms
-        # Ajustar dentro de los límites del audio
-        adj_start = max(0, adj_start)
-        adj_end = min(total_length_ms, adj_end)
-        # Solo mantener si queda audio después de eliminar el buffer
-        if adj_end > adj_start:
-            rangos_acortados.append((adj_start, adj_end))
-
-    # Paso 3: Ordenar y volver a unir los segmentos acortados
-    rangos_acortados.sort(key=lambda r: r[0])
+    # Paso 2: Ordenar y volver a unir los segmentos
+    rangos_unidos.sort(key=lambda r: r[0])
     completamente_unidos = []
-    if rangos_acortados:
-        current_start, current_end = rangos_acortados[0]
-        for start, end in rangos_acortados[1:]:
+    if rangos_unidos:
+        current_start, current_end = rangos_unidos[0]
+        for start, end in rangos_unidos[1:]:
             if start <= current_end:
                 current_end = max(current_end, end)
             else:
@@ -117,13 +101,39 @@ def crop_welding_audio(
                 current_start, current_end = start, end
         completamente_unidos.append((current_start, current_end))
 
-    # Paso 4: Concatenar los rangos finales unidos
+    # Paso 3: Concatenar los rangos finales unidos
     audio_segment = AudioSegment.from_wav(file_path)
     cropped_audio = AudioSegment.empty()
     for start_ms, end_ms in completamente_unidos:
         cropped_audio += audio_segment[start_ms:end_ms]
 
+    # Recortar los primeros y últimos segundos del audio completo
+    crop_start_end_ms = crop_start_end_s * 1000
+    cropped_audio = cropped_audio[crop_start_end_ms:-crop_start_end_ms]
+
     return cropped_audio
+
+
+def plot_waveforms(original_audio, original_sr, cropped_audio, cropped_sr, file_name, output_path):
+    plt.figure(figsize=(14, 12))
+
+    plt.subplot(2, 1, 1)
+    times = np.arange(len(original_audio)) / original_sr
+    plt.plot(times, original_audio)
+    plt.title("Original: " + file_name)
+    plt.xlabel("Tiempo (s)")
+    plt.ylabel("Amplitud")
+
+    plt.subplot(2, 1, 2)
+    cropped_times = np.arange(len(cropped_audio)) / cropped_sr
+    plt.plot(cropped_times, cropped_audio)
+    plt.title("Cropped: " + file_name)
+    plt.xlabel("Tiempo (s)")
+    plt.ylabel("Amplitud")
+
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.close()
 
 
 def main():
@@ -131,23 +141,16 @@ def main():
     cropped_folder_path = "cropped"
     graph_folder_path = "graph"
     enable_graphs = True  # False para deshabilitar gráficos
+    crop_start_end_s = 3  # Segundos a recortar del inicio y final del audio completo
     os.makedirs(cropped_folder_path, exist_ok=True)
     os.makedirs(graph_folder_path, exist_ok=True)
 
     audio_files = load_audios_from_folder(folder_path)
     for audio, sr, file_name in audio_files:
         original_length_ms = int((len(audio) / sr) * 1000)
-        if enable_graphs:
-            plt.figure(figsize=(14, 6))
-            plt.subplot(2, 1, 1)
-            times = np.arange(len(audio)) / sr
-            plt.plot(times, audio)
-            plt.title("Original: " + file_name)
-            plt.xlabel("Tiempo (s)")
-            plt.ylabel("Amplitud")
 
         cropped_audio = crop_welding_audio(
-            os.path.join(folder_path, file_name)
+            os.path.join(folder_path, file_name), crop_start_end_s=crop_start_end_s
         )
 
         cropped_audio.export(
@@ -165,16 +168,7 @@ def main():
                 os.path.join(cropped_folder_path, "cropped_" + file_name),
                 sr=None,
             )
-            plt.subplot(2, 1, 2)
-            cropped_times = np.arange(len(cropped_audio_data)) / cropped_sr
-            plt.plot(cropped_times, cropped_audio_data)
-            plt.title("Cropped: " + file_name)
-            plt.xlabel("Tiempo (s)")
-            plt.ylabel("Amplitud")
-
-            plt.tight_layout()
-            plt.savefig(os.path.join(graph_folder_path, f"{file_name}.png"))
-            plt.close()
+            plot_waveforms(audio, sr, cropped_audio_data, cropped_sr, file_name, os.path.join(graph_folder_path, f"{file_name}.png"))
 
 
 if __name__ == "__main__":
