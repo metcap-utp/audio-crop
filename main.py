@@ -161,7 +161,7 @@ def main():
         cropped_length_ms = len(cropped_audio)
         time_removed_ms = original_length_ms - cropped_length_ms
         time_removed_s = time_removed_ms / 1000.0
-        print(f"Se removieron {time_removed_s} segundos de {file_name}")
+        print(f"Se removieron {time_removed_s:.2f} segundos de {file_name}")
 
         if enable_graphs:
             cropped_audio_data, cropped_sr = librosa.load(
